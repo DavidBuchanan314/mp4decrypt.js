@@ -4,7 +4,6 @@ const MP4Box = require("mp4box");
 const fs = require("fs");
 const { assert } = require("console");
 const crypto = require("node:crypto");
-const { maxHeaderSize } = require("http");
 
 // see mp4box.js/src/parsing/senc.js
 function parseSencBody(data, iv_length) {
