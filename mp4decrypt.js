@@ -53,6 +53,8 @@ function mp4decrypt(input_path, output_path) {
 		return;
 	}
 
+	const filesize = fs.statSync(input_path).size;
+
 	fs.copyFileSync(input_path, output_path); // start off with a copy of the input file
 	const outfile = fs.openSync(output_path, "r+");
 
@@ -102,7 +104,7 @@ function mp4decrypt(input_path, output_path) {
 			let sample_idx = 0;
 			let pt_idx = 0;
 			for (const {clear_bytes, cipher_bytes} of this_senc.subsample_encryption_info) {
-				console.log(clear_bytes, cipher_bytes);
+				//console.log(clear_bytes, cipher_bytes);
 				decrypted_sample_parts.push(sample.data.subarray(sample_idx, sample_idx+clear_bytes));
 				sample_idx += clear_bytes + cipher_bytes;
 				decrypted_sample_parts.push(plaintext.subarray(pt_idx, pt_idx+cipher_bytes));
@@ -111,6 +113,7 @@ function mp4decrypt(input_path, output_path) {
 			const decrypted_sample = Buffer.concat(decrypted_sample_parts);
 
 			fs.writeSync(outfile, decrypted_sample, 0, decrypted_sample.length, sample.offset);
+			process.stdout.write(`\rProgress: ${sample.offset}/${filesize} (${(100*sample.offset/filesize).toFixed(1)}%)`);
 
 			/*if (mp4.prev_moof != sample.moof_number) { // this is a bit hacky but it works, maybe
 				mp4.prev_moof = sample.moof_number;
@@ -135,6 +138,7 @@ function mp4decrypt(input_path, output_path) {
 	mp4.appendBuffer(buf);
 	mp4.flush();
 	fs.closeSync(outfile);
+	console.log("\nDone!");
 	//console.log("abc");
 	//mp4.write(writestream);
 	//fs.writeFileSync(output_path, Buffer.from(writestream.buffer));
