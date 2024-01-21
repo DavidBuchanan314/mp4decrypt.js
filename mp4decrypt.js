@@ -3,6 +3,7 @@
 const MP4Box = require("mp4box");
 const fs = require("fs");
 const { assert } = require("console");
+const crypto = require("node:crypto");
 
 // see mp4box.js/src/parsing/senc.js
 function parseSencBody(data, iv_length) {
@@ -51,6 +52,8 @@ function mp4decrypt(input_path, output_path) {
 		return;
 	}
 
+	const writestream = new MP4Box.DataStream();
+
 	const mp4 = MP4Box.createFile();
 
 	mp4.onError = function(e) {
@@ -67,11 +70,10 @@ function mp4decrypt(input_path, output_path) {
 		for (const sample of samples) {
 			let senc = getSencForMoofNumber(mp4, sample.moof_number - 1); // is this an off by one lol (yeah, looks like it https://github.com/gpac/mp4box.js/blob/a8f4cd883b8221bedef1da8c6d5979c2ab9632a8/src/isofile-sample-processing.js#L402)
 			let this_senc = senc[sample.number_in_traf];
-			//console.log(sample);
-			//console.log(senc);
-			//console.log(sample.moof_number, senc.length, sample_idx, sample.number_in_traf, sample.number);
-			//console.log(sample.size, this_senc.subsample_encryption_info[0].clear_bytes + this_senc.subsample_encryption_info[0].cipher_bytes);
 
+			// TODO: also implement CBCS
+
+			// first, extract the ciphertext fragments into a contiguous buffer
 			const ciphertext_parts = [];
 			let idx = 0;
 			for (const {clear_bytes, cipher_bytes} of this_senc.subsample_encryption_info) {
@@ -80,7 +82,26 @@ function mp4decrypt(input_path, output_path) {
 			}
 			assert(idx === sample.data.length);
 			const ciphertext = Buffer.concat(ciphertext_parts);
-			console.log(ciphertext);
+
+			// then decrypt it
+			const key = Buffer.from("100b6c20940f779a4589152b57d2dacb", "hex");
+			const cipher = crypto.createCipheriv("AES-128-CTR", key, this_senc.iv);
+			const plaintext = Buffer.concat([cipher.update(ciphertext), cipher.final()]);
+
+			// finally, reconstitute the decrypted sample
+			const decrypted_sample_parts = [];
+			let sample_idx = 0;
+			let pt_idx = 0;
+			for (const {clear_bytes, cipher_bytes} of this_senc.subsample_encryption_info) {
+				console.log(clear_bytes, cipher_bytes);
+				decrypted_sample_parts.push(sample.data.subarray(sample_idx, sample_idx+clear_bytes));
+				sample_idx += clear_bytes + cipher_bytes;
+				decrypted_sample_parts.push(plaintext.subarray(pt_idx, pt_idx+cipher_bytes));
+				pt_idx += cipher_bytes;
+			}
+			const decrypted_sample = Buffer.concat(decrypted_sample_parts);
+
+			//console.log(sample);
 
 			//process.exit(); // TODO: keep going!
 		}
@@ -91,6 +112,9 @@ function mp4decrypt(input_path, output_path) {
 	buf.fileStart = 0;
 	mp4.appendBuffer(buf);
 	mp4.flush();
+	//console.log("abc");
+	//mp4.write(writestream);
+	fs.writeFileSync(output_path, Buffer.from(writestream.buffer));
 }
 
 if (require.main === module) {
